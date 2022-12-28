@@ -6,7 +6,12 @@ from utils.db import set_vote, get_voted
 
 
 @dp.message_handler()
-async def msg(message: types.Message):
+async def msg1(message: types.Message):
+    await message.answer("It's working...")
+
+
+@dp.message_handler(commands=['send'])
+async def msg2(message: types.Message):
     if message.chat.id == ADMIN:
         await bot.send_message(CHANNEL,
                                "Vodiy1.uz сўровномаси: Фарғона вилоятида қайси ҳоким яхши фаолият олиб боряпти? ",

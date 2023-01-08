@@ -1,3 +1,3 @@
 BOT_TOKEN = ""
-ADMIN = 1144957860
-CHANNEL = "@Vodiy1uzofficial"
+CHANEL = "@test_chanel_uzb"
+ADMINS = [1144957860, 337450552]

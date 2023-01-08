@@ -1,12 +1,35 @@
-from aiogram import executor
+import asyncio
+from aiogram import executor, types
+from aiogram.dispatcher.middlewares import BaseMiddleware
+from aiogram.dispatcher.handler import CancelHandler
 from loader import dp
-from handlers import message_handler, error_handler
+from configs.config import ADMINS
+import handlers
 from utils.db import init
+from handlers.helper import forever
+
+
+# https://botfather.dev/dashboard/lesson/11-04-sozdanie-bota-tehpodderzhki
+
+
+class AuthMiddleware(BaseMiddleware):
+    # Filters
+    async def on_process_message(self, message: types.Message, data: dict):
+        user = message.chat
+        data["middleware_data"] = user.id
+        if user.id in ADMINS:
+            return True
+        else:
+            await message.answer("Siz admin emassiz!")
+            raise CancelHandler()
+    # Handlers
 
 
 async def start_up(_):
-    print("start up")
     init()
+    event_loop = asyncio.get_event_loop()
+    event_loop.create_task(forever())
+    print("start up ...")
 
 
 async def shut_down(_):
@@ -14,4 +37,5 @@ async def shut_down(_):
 
 
 if __name__ == "__main__":
-    executor.start_polling(dp, skip_updates=False, on_startup=start_up, on_shutdown=shut_down)
+    dp.middleware.setup(AuthMiddleware())
+    executor.start_polling(dp, on_startup=start_up, on_shutdown=shut_down)

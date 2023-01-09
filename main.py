@@ -11,7 +11,6 @@ from handlers.helper import forever
 
 # https://botfather.dev/dashboard/lesson/11-04-sozdanie-bota-tehpodderzhki
 
-
 class AuthMiddleware(BaseMiddleware):
     # Filters
     async def on_process_message(self, message: types.Message, data: dict):

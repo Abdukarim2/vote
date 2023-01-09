@@ -1,7 +1,7 @@
 from aiogram.types import (
     ReplyKeyboardMarkup, KeyboardButton, ReplyKeyboardRemove, InlineKeyboardMarkup, InlineKeyboardButton
 )
-from utils.db import get_all_pool, get_pool
+from utils.db import get_all_pool, get_pool, get_all_post
 
 
 def menu():
@@ -56,10 +56,18 @@ def save_send_back():
     return kb
 
 
-def exist_pool(call_data):
+def exist_pool(call_data, send=None):
     kb = InlineKeyboardMarkup(row_width=1)
     data = get_all_pool()
-    for i in data:
+    data_btn = []
+    if not send:
+        for i in data:
+            if i[2] is None:
+                data_btn.append(i)
+    elif send:
+        for i in data:
+            data_btn.append(i)
+    for i in data_btn:
         kb.add(
             InlineKeyboardButton(text=f"{i[0]}", callback_data=f"{call_data}{i[1]}")
         )
@@ -73,7 +81,7 @@ def pool(pool_id):
         text = data[0][1]
     else:
         last_data = get_all_pool()
-        text = last_data[-1][0]
+        text = last_data[-1][3]
     for i in data:
         index = data.index(i)
         kb.add(
@@ -83,3 +91,35 @@ def pool(pool_id):
         "kb": kb,
         "text": text
     }
+
+
+def post_btn(data, post_id, url: str = None):
+    kb = InlineKeyboardMarkup(row_width=1)
+    if url:
+        kb.add(
+            InlineKeyboardButton(text=f"{data}", url=url)
+        )
+    else:
+        kb.add(
+            InlineKeyboardButton(text=f"{data}", callback_data=f"get_post_answer_{post_id}")
+        )
+    return kb
+
+
+def get_all_post_btn(call_data, send):
+    kb = InlineKeyboardMarkup(row_width=1)
+    data = get_all_post()
+    data_btn = []
+    if not send:
+        for i in data:
+            if i[6] is None:
+                data_btn.append(i)
+    elif send:
+        for i in data:
+            data_btn.append(i)
+    for i in data_btn:
+        kb.add(
+            InlineKeyboardButton(text=f"{i[1]}", callback_data=f"{call_data}{i[0]}")
+        )
+    return kb
+

@@ -31,6 +31,18 @@ def init():
                             'message_id' integer
                         )
             """)
+    cur.execute("""
+                 CREATE TABLE IF NOT EXISTS 
+                        'post'(
+                            'id' integer primary key AUTOINCREMENT,
+                            'name' varchar(40),
+                            'photo_id' text null,
+                            'text_visible' text null,
+                            'text_hidden' text,
+                            'button' varchar(40),
+                            'message_id' integer null
+                        )
+            """)
     con.close()
 
 
@@ -82,7 +94,7 @@ def get_all_pool():
     con = sqlite3.connect("./db.sqlite3")
     cur = con.cursor()
     data = cur.execute(f"""
-                   SELECT name, id, message_id FROM pool
+                   SELECT name, id, message_id, text FROM pool
                 """).fetchall()
     con.close()
     return data
@@ -137,6 +149,52 @@ def get_pool_for_del(pool_id):
     cur = con.cursor()
     data = cur.execute(f"""
                 SELECT message_id FROM pool WHERE id={pool_id}
+            """).fetchone()
+    con.close()
+    return data
+
+
+def get_post(post_id):
+    con = sqlite3.connect("./db.sqlite3")
+    cur = con.cursor()
+    data = cur.execute(f"""
+                    SELECT * FROM post WHERE id={post_id}
+                """).fetchone()
+    con.close()
+    return data
+
+
+def set_post_mes_id(post_id, message_id):
+    con = sqlite3.connect("./db.sqlite3")
+    cur = con.cursor()
+    try:
+        cur.execute(f"""
+                UPDATE post SET message_id = {message_id} WHERE id = {post_id}
+            """)
+        con.commit()
+        status = 201
+    except sqlite3.Error as e:
+        print(e)
+        status = 400
+    con.close()
+    return status
+
+
+def get_all_post():
+    con = sqlite3.connect("./db.sqlite3")
+    cur = con.cursor()
+    data = cur.execute(f"""
+                        SELECT * FROM post 
+                    """).fetchall()
+    con.close()
+    return data
+
+
+def get_post_for_del(post_id):
+    con = sqlite3.connect("./db.sqlite3")
+    cur = con.cursor()
+    data = cur.execute(f"""
+                SELECT message_id FROM post WHERE id={post_id}
             """).fetchone()
     con.close()
     return data

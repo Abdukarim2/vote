@@ -2,11 +2,11 @@ import asyncio
 from aiogram import executor, types
 from aiogram.dispatcher.middlewares import BaseMiddleware
 from aiogram.dispatcher.handler import CancelHandler
-from loader import dp
+from loader import dp, bot
 from configs.config import ADMINS
-import handlers
 from utils.db import init
-from handlers.helper import forever
+from editor import update_loop
+import handlers
 
 
 class AuthMiddleware(BaseMiddleware):
@@ -23,13 +23,17 @@ class AuthMiddleware(BaseMiddleware):
 
 
 async def start_up(_):
-    init()
+    await init()
     event_loop = asyncio.get_event_loop()
-    event_loop.create_task(forever())
+    event_loop.create_task(update_loop())
     print("start up ...")
 
 
 async def shut_down(_):
+    try:
+        await bot.send_message(1144957860, "Shut down")
+    except Exception as e:
+        pass
     print("shut down")
 
 

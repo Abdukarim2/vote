@@ -1,20 +1,22 @@
 from aiogram import types
 from aiogram.dispatcher import FSMContext
-from loader import dp, bot
-from buttons.button import menu, save_send_back, pool, post_btn
-from utils.states import Poll, Post
-from utils.db import create, delete, set_mes_id, get_post, set_post_mes_id
 from configs.config import CHANEL
+from loader import dp, bot
+from buttons.button import (btn_back, btn_menu, btn_cancel, btn_inline, btn_inline_url, btn_answer)
+from utils.db import (create, delete, get_all_by, set_message_id)
+from states.state import Pool, Question
+from handlers.helper import maker
 
 
 @dp.message_handler(lambda message: message.text.lower() == "orqaga", state='*')
 async def cancel_state(message: types.Message, state: FSMContext):
+    menu = await btn_menu()
     await state.reset_data()
     await state.finish()
-    await message.reply("Bekor qilindi!", reply_markup=menu())
+    await message.reply("Bekor qilindi!", reply_markup=menu)
 
 
-@dp.message_handler(state=Poll.name)
+@dp.message_handler(state=Pool.name)
 async def pool_name(message: types.Message, state: FSMContext):
     text = message.text
     if len(text) > 40:
@@ -22,217 +24,361 @@ async def pool_name(message: types.Message, state: FSMContext):
     else:
         async with state.proxy() as data:
             data['name'] = text
-        await Poll.next()
-        await message.answer("So'rovnoma matnini kiritin ushbu matn so'rovnoma tepasida ko'rinib turadi.")
+        await Pool.next()
+        await message.answer("So\'rovnoma uchun rasm, video yoki fayl jo'nating agar "
+                             "so\'rovnomada rasm, video yoki fayl bo\'lishini hohlamasangiz"
+                             "so\'rovnoma matnini kiritishingiz mumkun ushbu matn"
+                             "so\'rovnoma tepasida ko\'rinib turadi")
 
 
-@dp.message_handler(state=Poll.text)
+@dp.message_handler(content_types=types.ContentTypes.PHOTO, state=Pool.file_id)
+async def pool_photo(message: types.Message, state: FSMContext):
+    photo = message.photo[-1]
+    async with state.proxy() as data:
+        data['file_id'] = photo.file_id
+        data['file_type'] = 'photo'
+    await Pool.next()
+    await message.answer("So\'rovnoma matnini kiritishingiz mumkun ushbu matn so\'rovnomada tepasida ko\'rinib turadi")
+
+
+@dp.message_handler(content_types=types.ContentTypes.VIDEO, state=Pool.file_id)
+async def pool_video(message: types.Message, state: FSMContext):
+    video = message.video
+    file_id = video.file_id
+    async with state.proxy() as data:
+        data['file_id'] = file_id
+        data['file_type'] = 'video'
+    await Pool.next()
+    await message.answer("So\'rovnoma matnini kiritishingiz mumkun ushbu matn so\'rovnomada tepasida ko\'rinib turadi")
+
+
+@dp.message_handler(content_types=types.ContentTypes.DOCUMENT, state=Pool.file_id)
+async def pool_document(message: types.Message, state: FSMContext):
+    document = message.document
+    file_id = document.file_id
+    async with state.proxy() as data:
+        data['file_id'] = file_id
+        data['file_type'] = 'document'
+    await Pool.next()
+    await message.answer("So\'rovnoma matnini kiritishingiz mumkun ushbu matn so\'rovnomada tepasida ko\'rinib turadi")
+
+
+@dp.message_handler(state=Pool.file_id)
+async def pool_fileid_override(message: types.Message, state: FSMContext):
+    text = message.text
+    async with state.proxy() as data:
+        data['text'] = text
+    await Pool.button.set()
+    await message.answer("So'rovnomaga taklif qiluvchi tugma uchun matn kiritin ushbu"
+                         "matn 40ta belgidan oshmasligi kerak.")
+
+
+@dp.message_handler(state=Pool.text)
 async def pool_text(message: types.Message, state: FSMContext):
     text = message.text
     async with state.proxy() as data:
         data['text'] = text
-        pool_id = create('pool', data.as_dict())
-        if pool_id:
-            data['bind'] = pool_id
-            await Poll.next()
-            await message.answer("So'rovnoma maydonlarini kiritishingiz mumkun.\n"
-                                 "So'rovnoma maydonlarini birma bir kiritishingiz kerak.\n"
-                                 f"Maydon kiritishingiz mumkun...\n\n"
-                                 "1.Kiritib bo'lgach <b>Saqlash</b> tugmasini bossangiz ushbu so'rovnoma saqlab "
-                                 "olinadi kanalga jo'natilmaydi buni keyinchalik jo'natishingiz mumkun.\n\n"
-                                 "2.Kiritib bo'lgach <b>Jo'natish</b> tugmasini bossangiz ushbu so'rovnoma saqlab "
-                                 "olinadi va kanalga jo'natiladi\n\n"
-                                 "3.Agar bekor qilmoqchi bo'lsangiz <b>Bekor qilish</b> tugmasini bossangiz ushbu "
-                                 "so'rovnoma o'chib ketadi va kanalga ham jo'natilmaydi\n\n",
-                                 reply_markup=save_send_back()
-                                 )
-        else:
-            await message.reply("Nimadur hato ketdi iltimos qaytadan urinib ko'ring", reply_markup=menu())
+    await Pool.next()
+    await message.answer("So'rovnomaga taklif qiluvchi tugma uchun matn kiritin ushbu"
+                         "matn 40ta belgidan oshmasligi kerak.")
 
 
-@dp.message_handler(state=Poll.field)
+@dp.message_handler(state=Pool.button)
+async def pool_button(message: types.Message, state: FSMContext):
+    text = message.text
+    back = await btn_back(['Ha', 'Yo\'q'])
+    if len(text) > 40:
+        await message.answer("Matn ko'pi bilan 40ta belgi bo'lishi kerak iltimos qaytadan kiritin.")
+    else:
+        async with state.proxy() as data:
+            data['button'] = text
+        await Pool.next()
+        await message.answer("Ushbu so\'rovnomada ishtirok etish uchun kanalga obuna bo\'lishi kerakmi?",
+                             reply_markup=back)
+
+
+@dp.message_handler(state=Pool.check)
+async def pool_check_user(message: types.Message, state: FSMContext):
+    text = message.text.lower()
+    if text in ['ha', 'yo\'q']:
+        async with state.proxy() as data:
+            if text == 'ha':
+                data['check_user'] = True
+            else:
+                data['check_user'] = False
+            new_pool_id = await create('pool', data.as_dict())
+            if new_pool_id:
+                data['bind'] = new_pool_id
+                data['pool_field'] = []
+                await Pool.next()
+                cancel = await btn_cancel()
+                await message.answer("So'rovnoma maydonlarini kiritishingiz mumkun.\n"
+                                     "So'rovnoma maydonlarini birma bir kiritishingiz kerak.\n"
+                                     f"Maydon kiritin...", reply_markup=cancel)
+            else:
+                data.clear()
+                await state.finish()
+                menu = await btn_menu()
+                await message.reply("Nimadur hato ketdi iltimos boshqatdan kiritib chiqing!", reply_markup=menu)
+    else:
+        back = await btn_back(['Ha', 'Yo\'q'])
+        await message.answer("Ushbu so\'rovnomada ishtirok etish uchun kanalga obuna bo\'lishi kerakmi?",
+                             reply_markup=back)
+
+
+@dp.message_handler(state=Pool.field)
 async def pool_field(message: types.Message, state: FSMContext):
     text = message.text
+    chat = message.chat
     async with state.proxy() as data:
-        data['name'] = text
-        data['voted'] = 0
-        copy_data = data.as_dict()
-        copy_data.pop('text')
-        if text.lower() == "saqlash":
-            data.clear()
-            await state.finish()
-            await message.answer("Saqlandi", reply_markup=menu())
-        elif text.lower() == "jo\'natish":
-            data.clear()
-            await state.finish()
-            pool_id = copy_data.get('bind')
-            pool_data = pool(pool_id)
-            text_pool = str(pool_data.get("text"))
-            pool_button = pool_data.get("kb")
-            text_code = text_pool.replace(r'\n', '\n')
-            mes = await bot.send_message(CHANEL, text_code, reply_markup=pool_button)
-            set_id = set_mes_id(pool_id, mes.message_id)
-            if set_id:
-                await message.answer("Jo'natildi", reply_markup=menu())
+        pool_id = data.as_dict().get('bind')
+        if not text.lower() == 'bekor qilish':
+            if text.lower() == 'jo\'natish' or text.lower() == 'ko\'rish':
+                fields = data.as_dict().get('pool_field')
+                if len(fields) >= 2:
+                    as_dict = data.as_dict()
+                    file = as_dict.get('file_id')
+                    file_type = as_dict.get('file_type')
+                    text_body = as_dict.get('text')
+                    if text.lower() == 'jo\'natish':
+                        for i in fields:
+                            new_pool_field = await create('pool_field', i)
+                            if new_pool_field:
+                                continue
+                            else:
+                                await delete('pool_field', 'bind', pool_id)
+                                await delete('pool', 'id', pool_id)
+                                data.clear()
+                                await state.finish()
+                                menu = await btn_menu()
+                                await message.answer("Nimadur hato ketdi iltimos boshqatdan kiritib chiqing!", reply_markup=menu)
+                                break
+                        else:
+                            pool_fields = await get_all_by('pool_field', ['*'], 'bind', pool_id)
+                            fields_list = [list(i) for i in pool_fields]
+                            markup = await btn_inline(data=fields_list, row=1, callback="vote_pool_", index=[1, 0, 2])
+                            posted = await maker(CHANEL, text=text_body, markup=markup, file=file, file_type=file_type)
+                            button = as_dict.get('button')
+                            url = f"https://t.me/{CHANEL[1:]}/{posted.message_id}"
+                            markup_url = await btn_inline_url(data=[button], url=[url])
+                            shared = await maker(chat=chat.id, text=text_body, markup=markup_url,
+                                                 file=file, file_type=file_type)
+                            data.clear()
+                            menu = await btn_menu()
+                            await state.finish()
+                            message_id = await set_message_id('pool', posted.message_id, pool_id)
+                            if message_id:
+                                await message.answer("Jo\'natildi 👆ushbu postni reklama qila olasiz.",
+                                                     reply_markup=menu)
+                            else:
+                                await message.answer("Nimadur hato ketdi iltimos boshqatdan kiritib chiqing!",
+                                                     reply_markup=menu)
+                                await delete('pool', 'id', pool_id)
+                                await delete('pool_field', 'bind', pool_id)
+                                await posted.delete()
+                                await shared.delete()
+                    elif text.lower() == 'ko\'rish':
+                        fields_list = [i.get('name') for i in fields]
+                        markup = await btn_inline(data=fields_list, row=1)
+                        await maker(chat=chat.id, text=text_body, markup=markup, file=file, file_type=file_type)
+                else:
+                    await message.answer("Maydon kiritin...")
             else:
-                # send creator if error
-                await mes.delete()
-                bind_id = copy_data.get("bind")
-                delete('pool', 'id', bind_id)
-                delete('field', 'bind', bind_id)
-                await message.answer("Nimadur hato ketdi iltimos malumotlarni qayta kiritib chiqing!", reply_markup=menu())
-        elif text.lower() == "bekor qilish":
-            reset_pool = delete('pool', 'id', copy_data.get("bind"))
-            reset_field = delete('field', 'bind', copy_data.get("bind"))
-            if not reset_field and reset_pool:
-                # send creator if error
-                pass
-            data.clear()
-            await state.finish()
-            await message.reply("Bekor qilindi!", reply_markup=menu())
+                data['pool_field'].append({'name': text,
+                                           'voted': 0,
+                                           'bind': pool_id})
+                fields = data.as_dict().get('pool_field')
+                if len(fields) == 2:
+                    cancel = await btn_cancel(['Jo\'natish', 'Ko\'rish'])
+                    await message.answer("1.Hamma maydonlarni kiritib bo'lgach "
+                                         "<b>Jo'natish</b> tugmasini bossangiz ushbu"
+                                         "so'rovnoma saqlab olinadi va kanalga jo'natiladi\n\n"
+                                         "2.Agar so\'rovnoma qanday bo\'lishini oldindan ko\'rmoqchi bo'lsangiz "
+                                         "<b>Ko\'rish</b> tugmasini bosing va yana "
+                                         "maydon kiritishda davom etishingiz mumkun\n\n"
+                                         "3.Agar bekor qilmoqchi bo'lsangiz <b>Bekor qilish</b> tugmasini bossangiz ushbu "
+                                         "so'rovnoma o'chib ketadi va kanalga ham jo'natilmaydi\n\n",
+                                         reply_markup=cancel)
+                else:
+                    await message.answer("Maydon kiritin...")
         else:
-            field = create("field", copy_data)
-            if field:
-                await message.answer(f"Yana maydon kiritishingiz mumkun...")
-            else:
-                await message.reply("Nimadur hato ketdi iltimos qaytadan urinib ko'ring", reply_markup=menu())
+            await delete('pool', 'id', pool_id)
+            await delete('pool_field', 'bind', pool_id)
+            data.clear()
+            menu = await btn_menu()
+            await state.finish()
+            await message.reply("Bekor qilindi!", reply_markup=menu)
 
 
-@dp.message_handler(state=Post.name)
-async def post_name(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.name)
+async def question_name(message: types.Message, state: FSMContext):
     text = message.text
     if len(text) > 40:
         await message.answer("Nom ko'pi bilan 40ta belgi bo'lishi kerak iltimos qaytadan kiritin.")
     else:
         async with state.proxy() as data:
             data['name'] = text
-        await Post.next()
-        await message.answer("Po\'st uchun rasm yoki fayl jo'nating agar po\'stda rasm yoki fayl bo\'lishini hohlamasangiz "
-                             "po\'st matnini bir qismini kiritishingiz mumkun qolgan qismini tugma bosilganda chiqishi uchun alohida kiritasiz.")
+        await Question.next()
+        await message.answer("Savol uchun rasm, video yoki fayl jo'nating agar "
+                             "savolda rasm, video yoki fayl bo\'lishini hohlamasangiz"
+                             "savol matnini kiritishingiz mumkun ushbu matn"
+                             "savol tepasida ko\'rinib turadi.")
 
 
-@dp.message_handler(content_types=types.ContentTypes.PHOTO, state=Post.photo_id) #[, types.ContentTypes.DOCUMENT]
-async def post_image(message: types.Message, state: FSMContext):
-    photo = message.photo
-    file_id = photo[-1].file_id
+@dp.message_handler(content_types=types.ContentTypes.PHOTO, state=Question.file_id)
+async def question_photo(message: types.Message, state: FSMContext):
+    photo = message.photo[-1]
     async with state.proxy() as data:
-        data['photo_id'] = file_id
-    await Post.next()
-    await message.answer("Po\'st matnini bir qismini kiritishingiz mumkun qolgan qismini tugma bosilganda chiqishi uchun alohida kiritasiz.")
+        data['file_id'] = photo.file_id
+        data['file_type'] = 'photo'
+    await Question.next()
+    await message.answer("Savolni kiritishingiz mumkun ushbu matn savol tepasida ko\'rinib turadi.")
 
 
-@dp.message_handler(content_types=types.ContentTypes.DOCUMENT, state=Post.photo_id)
-async def post_document(message: types.Message, state: FSMContext):
+@dp.message_handler(content_types=types.ContentTypes.VIDEO, state=Question.file_id)
+async def question_video(message: types.Message, state: FSMContext):
+    video = message.video
+    file_id = video.file_id
+    async with state.proxy() as data:
+        data['file_id'] = file_id
+        data['file_type'] = 'video'
+    await Question.next()
+    await message.answer("Savolni kiritishingiz mumkun ushbu matn savol tepasida ko\'rinib turadi.")
+
+
+@dp.message_handler(content_types=types.ContentTypes.DOCUMENT, state=Question.file_id)
+async def question_document(message: types.Message, state: FSMContext):
     document = message.document
     file_id = document.file_id
     async with state.proxy() as data:
-        data['photo_id'] = file_id
-    await Post.next()
-    await message.answer("Po\'st matnini bir qismini kiritishingiz mumkun qolgan qismini tugma bosilganda chiqishi uchun alohida kiritasiz.")
+        data['file_id'] = file_id
+        data['file_type'] = 'document'
+    await Question.next()
+    await message.answer("Savolni kiritishingiz mumkun ushbu matn savol tepasida ko\'rinib turadi.")
 
 
-@dp.message_handler(state=Post.photo_id)
-async def no_post_image(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.file_id)
+async def question_fileid_override(message: types.Message, state: FSMContext):
+    text = message.text
     async with state.proxy() as data:
-        data['text_visible'] = message.text
-    await Post.text_hidden.set()
-    await message.answer("Po\'st matnini qolgan qismini kiritishingiz mumkun qolgan qismi tugma bosilganda chiqadi.")
+        data['text_visible'] = text
+    await Question.text_hidden.set()
+    await message.answer("Savol javobini kiritishingiz mumkun 100ta belgidan oshmasligi kerak.")
 
 
-@dp.message_handler(state=Post.text_visible)
-async def post_visible_text(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.text_visible)
+async def question_text_visible(message: types.Message, state: FSMContext):
+    text = message.text
     async with state.proxy() as data:
-        data['text_visible'] = message.text
-    await Post.next()
-    await message.answer("Po\'st matnini qolgan qismini kiritishingiz mumkun qolgan qismi tugma bosilganda chiqadi.")
+        data['text_visible'] = text
+    await Question.next()
+    await message.answer("Savol javobini kiritishingiz mumkun 100ta belgidan oshmasligi kerak.")
 
 
-@dp.message_handler(state=Post.text_hidden)
-async def post_hidden_text(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.text_hidden)
+async def question_text_hidden(message: types.Message, state: FSMContext):
+    text = message.text
     async with state.proxy() as data:
-        data['text_hidden'] = message.text
-    await Post.next()
-    await message.answer("Po\'st tagidagi tugma uchun matn kiritin bu matn ko'pi bilan 40ta belgi bo'lishi kerak.")
+        data['text_hidden'] = text
+    await Question.next()
+    await message.answer("Savol javobini bilish tugmasi uchun matn kiritin ushbu matn 40ta belgidan oshmasligi kerak.")
 
 
-@dp.message_handler(state=Post.button)
-async def post_button_text(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.button)
+async def question_button(message: types.Message, state: FSMContext):
     text = message.text
     if len(text) > 40:
-        await message.answer("Matn ko'pi bilan 40ta belgi bo'lishi kerak.")
+        await message.answer("Matn ko'pi bilan 40ta belgi bo'lishi kerak iltimos qaytadan kiritin.")
     else:
         async with state.proxy() as data:
             data['button'] = text
-        await Post.next()
-        await message.answer("1.Po\'st ni saqlash uchun <b>Saqlash</b> tugmasini bossangiz ushbu po\'st saqlab "
-                             "olinadi kanalga jo'natilmaydi buni keyinchalik jo'natishingiz mumkun.\n\n"
-                             "2.Po\'stni kanalga jo\'natish uchun <b>Jo'natish</b> tugmasini bossangiz ushbu po\'st saqlab "
-                             "olinadi va kanalga jo'natiladi\n\n"
-                             "3.Agar bekor qilmoqchi bo'lsangiz <b>Bekor qilish</b> tugmasini bossangiz ushbu "
-                             "po\'st o'chib ketadi va kanalga ham jo'natilmaydi\n\n",
-                             reply_markup=save_send_back()
-                             )
+        await Question.next()
+        back = await btn_back(['Ha', 'Yo\'q'])
+        await message.answer("Savol javobini bilish uchun kanalga obuna bo\'lishi kerakmi?",
+                             reply_markup=back)
 
 
-@dp.message_handler(state=Post.action)
-async def post_action(message: types.Message, state: FSMContext):
+@dp.message_handler(state=Question.check_user)
+async def question_check_user(message: types.Message, state: FSMContext):
+    text = message.text.lower()
+    if text in ['ha', 'yo\'q']:
+        async with state.proxy() as data:
+            if text == 'ha':
+                data['check_user'] = True
+            else:
+                data['check_user'] = False
+        await Question.next()
+        back = await btn_back(['Jo\'natish', 'Ko\'rish'])
+        await message.answer("1.Agar <b>Jo'natish</b> tugmasini bossangiz ushbu "
+                             "savol saqlab olinadi va kanalga jo'natiladi\n\n"
+                             "2.Agar savol qanday bo\'lishini oldindan ko\'rmoqchi bo'lsangiz "
+                             "<b>Ko\'rish</b> tugmasini bosing va yana\n\n"
+                             "3.Agar bekor qilmoqchi bo"
+                             "'lsangiz <b>Orqaga</b> tugmasini bossangiz ushbu "
+                             "so'rovnoma o'chib ketadi va kanalga ham jo'natilmaydi\n\n", reply_markup=back)
+    else:
+        back = await btn_back(['Ha', 'Yo\'q'])
+        await message.answer("Savol javobini bilish uchun kanalga obuna bo\'lishi kerakmi?",
+                             reply_markup=back)
+
+
+@dp.message_handler(state=Question.action)
+async def question_check_user(message: types.Message, state: FSMContext):
     text = message.text
     async with state.proxy() as data:
-        data_db = data.as_dict()
-        if text.lower() == "saqlash":
-            data.clear()
-            await state.finish()
-            post = create('post', data_db)
-            if post:
-                await message.answer("Saqlandi", reply_markup=menu())
-            else:
-                await message.answer("Nimadur hato ketdi iltimos malumotlarni qayta kiritib chiqing!",
-                                     reply_markup=menu())
-        elif text.lower() == "jo\'natish":
-            data.clear()
-            await state.finish()
-            post = create('post', data_db)
-            if post:
-                db_data = get_post(post_id=post)
-                markup = post_btn(data=db_data[5], post_id=post)
-                post_text = str(db_data[3])
-                post_text = post_text.replace(r'\n', '\n')
-                if db_data[2]:
-                    posted = await bot.send_photo(CHANEL, db_data[2], post_text, reply_markup=markup)
-                    url = f"https://t.me/{CHANEL[1:]}/{posted.message_id}"
-                    markup_url = post_btn(data=db_data[5], post_id=post, url=url)
-                    await message.answer_photo(db_data[2], post_text, reply_markup=markup_url)
-                    set_post_message_id = set_post_mes_id(post, posted.message_id)
-                    if set_post_message_id == 201:
-                        pass
+        if text.lower() in ['jo\'natish', 'ko\'rish']:
+            as_dict = data.as_dict()
+            file = as_dict.get('file_id')
+            file_type = as_dict.get('file_type')
+            text_body = as_dict.get('text_visible')
+            button = as_dict.get('button')
+            if text.lower() == 'jo\'natish':
+                await state.finish()
+                data.clear()
+                menu = await btn_menu()
+                new_question = await create('question', as_dict)
+                if new_question:
+                    markup = await btn_answer(button, callback=f"question_answer_{new_question}")
+                    posted = await maker(CHANEL, text_body, markup, file, file_type)
+                    msg_id = posted.message_id
+                    set_msg_id = await set_message_id('question', msg_id, new_question)
+                    if set_msg_id:
+                        markup_url = await btn_inline_url([button], url=[f"https://t.me/{CHANEL[1:]}/{msg_id}"])
+                        await maker(message.chat.id, text_body, markup_url, file, file_type)
+                        await message.answer("Jo\'natildi 👆ushbu postni reklama qila olasiz.",
+                                             reply_markup=menu)
                     else:
-                        # send creator if error
-                        pass
+                        await message.answer("Nimadur hato ketdi iltimos boshqatdan kiritib chiqing!",
+                                             reply_markup=menu)
+                        await posted.delete()
+                        await delete('question', 'id', new_question)
                 else:
-                    posted = await bot.send_message(CHANEL, post_text, reply_markup=markup)
-                    url = f"https://t.me/{CHANEL[1:]}/{posted.message_id}"
-                    markup_url = post_btn(data=db_data[5], post_id=post, url=url)
-                    await message.answer(post_text, reply_markup=markup_url)
-                    set_post_message_id = set_post_mes_id(post, posted.message_id)
-                    if set_post_message_id == 201:
-                        pass
-                    else:
-                        # send creator if error
-                        pass
-                await message.answer("Jo\'natildi", reply_markup=menu())
+                    await message.answer("Nimadur hato ketdi iltimos boshqatdan kiritib chiqing!",
+                                         reply_markup=menu)
             else:
-                await message.answer("Nimadur hato ketdi iltimos malumotlarni qayta kiritib chiqing!",
-                                     reply_markup=menu())
-        elif text.lower() == "bekor qilish":
-            data.clear()
-            await state.finish()
-            await message.reply("Bekor qilindi!", reply_markup=menu())
+                await Question.next()
+                markup = await btn_answer(button, callback='view_question')
+                await maker(message.chat.id, text_body, markup, file, file_type)
         else:
-            await message.answer("1.Po\'st ni saqlash uchun <b>Saqlash</b> tugmasini bossangiz ushbu po\'st saqlab "
-                                 "olinadi kanalga jo'natilmaydi buni keyinchalik jo'natishingiz mumkun.\n\n"
-                                 "2.Po\'stni kanalga jo\'natish uchun <b>Jo'natish</b> tugmasini bossangiz ushbu po\'st saqlab "
-                                 "olinadi va kanalga jo'natiladi\n\n"
-                                 "3.Agar bekor qilmoqchi bo'lsangiz <b>Bekor qilish</b> tugmasini bossangiz ushbu "
-                                 "po\'st o'chib ketadi va kanalga ham jo'natilmaydi\n\n",
-                                 reply_markup=save_send_back()
-                                 )
+            back = await btn_back(['Jo\'natish', 'Ko\'rish'])
+            await message.answer("1.Agar <b>Jo'natish</b> tugmasini bossangiz ushbu "
+                                 "savol saqlab olinadi va kanalga jo'natiladi\n\n"
+                                 "2.Agar savol qanday bo\'lishini oldindan ko\'rmoqchi bo'lsangiz "
+                                 "<b>Ko\'rish</b> tugmasini bosing va yana\n\n"
+                                 "3.Agar bekor qilmoqchi bo"
+                                 "'lsangiz <b>Orqaga</b> tugmasini bossangiz ushbu "
+                                 "so'rovnoma o'chib ketadi va kanalga ham jo'natilmaydi\n\n", reply_markup=back)
+
+
+@dp.callback_query_handler(lambda callback: callback.data == 'view_question', state=Question.view)
+async def question_view(callback: types.CallbackQuery, state: FSMContext):
+    async with state.proxy() as data:
+        as_dict = data.as_dict()
+        text_hidden = as_dict.get('text_hidden')
+        await bot.answer_callback_query(callback.id, text_hidden, show_alert=True)
+
+
+@dp.message_handler(state=Question.view)
+async def question_view_back(message: types.Message, state: FSMContext):
+    await Question.previous()
+    await question_check_user(message, state)
